@@ -1,0 +1,7 @@
+= Rust + HTMX
+
+== Resources
+
+* https://www.joshfinnie.com/blog/trying-out-htmx-with-rust/[Trying out HTMX with Rust]
+* https://www.bitswired.com/blog/post/rustgpt-journey-rust-htmx-web-dev[My Journey Using Rust + HMTX for Web Dev]
+* https://www.reddit.com/r/htmx/comments/1d6m1f2/best_htmx_stack_for_rust/[Best HTMX Stack for Rust]
