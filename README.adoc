@@ -1,5 +1,16 @@
 = Rust + HTMX
 
+== Stack
+
+* Axum for webserver
+* HTMX for interactivity
+* Askama for templating
++
+Alternatives:
++
+** Minijinja
+** Maud
+
 == Resources
 
 * https://www.joshfinnie.com/blog/trying-out-htmx-with-rust/[Trying out HTMX with Rust]
