@@ -18,3 +18,13 @@ Alternatives:
 * https://www.joshfinnie.com/blog/trying-out-htmx-with-rust/[Trying out HTMX with Rust]
 * https://www.bitswired.com/blog/post/rustgpt-journey-rust-htmx-web-dev[My Journey Using Rust + HMTX for Web Dev]
 * https://www.reddit.com/r/htmx/comments/1d6m1f2/best_htmx_stack_for_rust/[Best HTMX Stack for Rust]
+
+== SNMP Crates
+
+* https://github.com/ancwrd1/rust-snmp - Fork of the original rust-snmp with async support, fixes and refactorings.
++
+Claims v2 support only.  Unclear if supports v1.
+* https://github.com/gustavowd/rust-snmp - Fork of the original rust-snmp that adds async, and v1 support
+* https://github.com/clarkmcc/snmp-rust - Newer crate with v1/2 support
+* https://github.com/davedufresne/modern_snmp - v3 crate
+* https://github.com/mds5000/rsnmp - v1,2,3? no async
