@@ -55,7 +55,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/devices", get(get_devices))
-        .route("/device/{device_name}", get(get_device))
+        .route("/device/:device_name", get(get_device))
         .layer(
             ServiceBuilder::new()
                 .layer(HandleErrorLayer::new(|error: BoxError| async move {
@@ -101,7 +101,6 @@ struct AppState {
     devices: Devices,
 }
 
-#[axum::debug_handler]
 async fn get_device(
     Path(device_name): Path<String>,
     State(state): State<SharedState>,
