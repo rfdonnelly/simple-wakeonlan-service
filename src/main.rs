@@ -86,11 +86,19 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
+enum PowerState {
+    On,
+    #[default]
+    Off,
+}
+
+#[derive(Debug, Default, Clone, Serialize)]
 struct Device {
     pdu: String,
     outlet: u32,
     user: Option<String>,
     origin: Option<String>,
+    state: PowerState,
 }
 
 type SharedState = Arc<RwLock<AppState>>;
