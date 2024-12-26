@@ -6,24 +6,27 @@ use axum::{
     Json, Router,
 };
 
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::Arc,
     time::Duration,
 };
+use tokio::sync::{RwLock};
 
 use std::fmt::Display;
 use std::str::FromStr;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
+use tokio::net::lookup_host;
 use tower::{BoxError, ServiceBuilder};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use macaddr::MacAddr6 as MacAddr;
 use wake_on_lan::MagicPacket as WolPacket;
+use ping_rs::send_ping_async as ping;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -79,6 +82,14 @@ struct Device {
     mac: MacAddr,
 }
 
+#[derive(Debug, Default, Clone, Serialize)]
+struct DeviceStatus {
+    hostname: String,
+    #[serde(serialize_with = "serialize_to_string")]
+    mac: MacAddr,
+    status: String,
+}
+
 fn deserialize_from_str<'de, S, D>(deserializer: D) -> Result<S, D::Error>
 where
     S: FromStr,
@@ -89,6 +100,15 @@ where
             S::from_str(&s).map_err(de::Error::custom)
 }
 
+fn serialize_to_string<T, S>(v: &T, serializer: S) -> Result<S::Ok, S::Error>
+where
+    T: ToString,
+    S: Serializer,
+{
+    serializer.serialize_str(&v.to_string())
+}
+
+
 type SharedState = Arc<RwLock<AppState>>;
 type Devices = HashMap<String, Device>;
 
@@ -97,14 +117,30 @@ struct AppState {
     devices: Devices,
 }
 
+#[axum::debug_handler]
 async fn get_device(
     Path(device_name): Path<String>,
     State(state): State<SharedState>,
-) -> Result<Json<Device>, StatusCode> {
-    let devices = &state.read().unwrap().devices;
+) -> Result<Json<DeviceStatus>, StatusCode> {
+    let devices = &state.read().await.devices;
 
     if let Some(device) = devices.get(&device_name) {
-        Ok(Json(device.clone()))
+        let ip_addr = lookup_host(format!("{}:0", device_name)).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.next().unwrap().ip();
+        tracing::info!("pinging {} ({})", device_name, ip_addr);
+        let data = [8; 8];
+        let ping_result = ping(&ip_addr, Duration::from_secs(1), Arc::new(&data), None).await;
+        tracing::info!("{:?}", ping_result);
+        let status = match ping_result {
+            Ok(_) => "online",
+            Err(_) => "offline",
+        };
+
+        let device_status = DeviceStatus {
+            hostname: device_name.clone(),
+            mac: device.mac,
+            status: status.to_string(),
+        };
+        Ok(Json(device_status))
     } else {
         Err(StatusCode::NOT_FOUND)
     }
@@ -114,7 +150,7 @@ async fn post_device(
     Path(device_name): Path<String>,
     State(state): State<SharedState>,
 ) -> Result<(), StatusCode> {
-    let devices = &state.read().unwrap().devices;
+    let devices = &state.read().await.devices;
 
     if let Some(device) = devices.get(&device_name) {
         let packet = WolPacket::new(device.mac.as_bytes().try_into().unwrap());
@@ -127,7 +163,7 @@ async fn post_device(
 }
 
 async fn get_devices(State(state): State<SharedState>) -> Json<Devices> {
-    let devices = &state.read().unwrap().devices;
+    let devices = &state.read().await.devices;
 
     Json(devices.clone())
 }
