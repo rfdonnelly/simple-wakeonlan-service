@@ -3,7 +3,7 @@ use axum::{
     error_handling::HandleErrorLayer,
     extract::{Path, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 
@@ -54,6 +54,8 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/", get(get_root))
+        .route("/status/:device_name", get(get_status))
+        .route("/wake/:device_name", post(post_wake))
         .route("/devices", get(get_devices))
         .route("/device/:device_name", get(get_device).post(post_device))
         .layer(
@@ -92,7 +94,7 @@ struct Device {
 
 #[derive(Debug, Default, Clone, Serialize)]
 struct DeviceStatus {
-    hostname: String,
+    name: String,
     #[serde(serialize_with = "serialize_to_string")]
     mac: MacAddr,
     status: String,
@@ -125,7 +127,6 @@ struct AppState {
     devices: Devices,
 }
 
-#[axum::debug_handler]
 async fn get_device(
     Path(device_name): Path<String>,
     State(state): State<SharedState>,
@@ -144,7 +145,7 @@ async fn get_device(
         };
 
         let device_status = DeviceStatus {
-            hostname: device_name.clone(),
+            name: device_name.clone(),
             mac: device.mac,
             status: status.to_string(),
         };
@@ -155,6 +156,43 @@ async fn get_device(
 }
 
 async fn post_device(
+    Path(device_name): Path<String>,
+    State(state): State<SharedState>,
+) -> Result<(), StatusCode> {
+    let devices = &state.read().await.devices;
+
+    if let Some(device) = devices.get(&device_name) {
+        let packet = WolPacket::new(device.mac.as_bytes().try_into().unwrap());
+        tracing::debug!("sending wol packet to {}", device_name);
+        packet.send().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok(())
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn get_status(
+    Path(device_name): Path<String>,
+    State(state): State<SharedState>,
+) -> Result<String, StatusCode> {
+    let devices = &state.read().await.devices;
+
+    if let Some(device) = devices.get(&device_name) {
+        let ip_addr = lookup_host(format!("{}:0", device_name)).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.next().unwrap().ip();
+        tracing::info!("pinging {} ({})", device_name, ip_addr);
+        let data = [8; 8];
+        let ping_result = ping(&ip_addr, Duration::from_secs(1), Arc::new(&data), None).await;
+        tracing::info!("{:?}", ping_result);
+        match ping_result {
+            Ok(_) => Ok("online".to_string()),
+            Err(_) => Ok("offline".to_string()),
+        }
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn post_wake(
     Path(device_name): Path<String>,
     State(state): State<SharedState>,
 ) -> Result<(), StatusCode> {
@@ -182,7 +220,7 @@ async fn get_root(State(state): State<SharedState>) -> RootPage {
         .iter()
         .map(|(name, value)| {
             DeviceStatus {
-                hostname: name.clone(),
+                name: name.clone(),
                 mac: value.mac,
                 status: "offline".to_string(),
             }

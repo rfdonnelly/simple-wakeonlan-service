@@ -5,9 +5,26 @@
 {% block content %}
   Hello World
 
-  <ul>
   {% for device in devices %}
-    <li>{{device.hostname}}</li>
+    <button
+      hx-post="/wake/{{device.name}}"
+      hx-swap="none"
+    >
+      Wake {{device.name}}
+    </button>
+
+    <button
+      hx-get="/status/{{device.name}}"
+      hx-target="#{{device.name}}-status"
+    >
+      Refresh
+    </button>
+
+    <div
+      id="{{device.name}}-status"
+    >
+      Offline
+    </div>
   {% endfor %}
-  </ul>
+
 {% endblock %}
