@@ -6,7 +6,7 @@ use axum::{
     Json, Router,
 };
 
-use serde::Serialize;
+use serde::{de, Deserialize, Deserializer, Serialize};
 
 use std::{
     collections::HashMap,
@@ -14,11 +14,16 @@ use std::{
     time::Duration,
 };
 
+use std::fmt::Display;
+use std::str::FromStr;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tower::{BoxError, ServiceBuilder};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+use macaddr::MacAddr6 as MacAddr;
+use wake_on_lan::MagicPacket as WolPacket;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -31,31 +36,15 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let devices = {
-        let mut devices = HashMap::new();
-        devices.insert(
-            String::from("device0"),
-            Device {
-                pdu: String::from("pdu0"),
-                outlet: 0,
-                ..Default::default()
-            },
-        );
-        devices.insert(
-            String::from("device1"),
-            Device {
-                pdu: String::from("pdu1"),
-                outlet: 0,
-                ..Default::default()
-            },
-        );
-        devices
-    };
+    let devices_file = std::fs::File::open("devices.yml")?;
+    let devices: HashMap<String, Device> = serde_yaml::from_reader(devices_file)?;
+    tracing::info!("loaded devices {:?}", devices);
+
     let state = Arc::new(RwLock::new(AppState { devices }));
 
     let app = Router::new()
         .route("/devices", get(get_devices))
-        .route("/device/:device_name", get(get_device))
+        .route("/device/:device_name", get(get_device).post(post_device))
         .layer(
             ServiceBuilder::new()
                 .layer(HandleErrorLayer::new(|error: BoxError| async move {
@@ -74,7 +63,6 @@ async fn main() -> anyhow::Result<()> {
         )
         .with_state(Arc::clone(&state));
 
-    // write address like this to not make typos
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = TcpListener::bind(addr).await?;
     tracing::debug!("listening on {}", listener.local_addr()?);
@@ -85,20 +73,20 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Default, Clone, Serialize)]
-enum PowerState {
-    On,
-    #[default]
-    Off,
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
+struct Device {
+    #[serde(deserialize_with = "deserialize_from_str")]
+    mac: MacAddr,
 }
 
-#[derive(Debug, Default, Clone, Serialize)]
-struct Device {
-    pdu: String,
-    outlet: u32,
-    user: Option<String>,
-    origin: Option<String>,
-    state: PowerState,
+fn deserialize_from_str<'de, S, D>(deserializer: D) -> Result<S, D::Error>
+where
+    S: FromStr,
+        S::Err: Display,
+            D: Deserializer<'de>,
+{
+        let s: String = Deserialize::deserialize(deserializer)?;
+            S::from_str(&s).map_err(de::Error::custom)
 }
 
 type SharedState = Arc<RwLock<AppState>>;
@@ -115,11 +103,24 @@ async fn get_device(
 ) -> Result<Json<Device>, StatusCode> {
     let devices = &state.read().unwrap().devices;
 
-    tracing::debug!("{:?}", &device_name);
-    tracing::debug!("{:?}", &devices);
-
     if let Some(device) = devices.get(&device_name) {
         Ok(Json(device.clone()))
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn post_device(
+    Path(device_name): Path<String>,
+    State(state): State<SharedState>,
+) -> Result<(), StatusCode> {
+    let devices = &state.read().unwrap().devices;
+
+    if let Some(device) = devices.get(&device_name) {
+        let packet = WolPacket::new(device.mac.as_bytes().try_into().unwrap());
+        tracing::debug!("sending wol packet to {}", device_name);
+        packet.send().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok(())
     } else {
         Err(StatusCode::NOT_FOUND)
     }
