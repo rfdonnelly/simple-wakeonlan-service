@@ -1,3 +1,4 @@
+use askama_axum::Template;
 use axum::{
     error_handling::HandleErrorLayer,
     extract::{Path, State},
@@ -28,6 +29,10 @@ use macaddr::MacAddr6 as MacAddr;
 use wake_on_lan::MagicPacket as WolPacket;
 use ping_rs::send_ping_async as ping;
 
+#[derive(Template)]
+#[template(path = "pages/root.html")]
+struct RootPage {}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
@@ -46,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(RwLock::new(AppState { devices }));
 
     let app = Router::new()
+        .route("/", get(get_root))
         .route("/devices", get(get_devices))
         .route("/device/:device_name", get(get_device).post(post_device))
         .layer(
@@ -166,4 +172,8 @@ async fn get_devices(State(state): State<SharedState>) -> Json<Devices> {
     let devices = &state.read().await.devices;
 
     Json(devices.clone())
+}
+
+async fn get_root(State(state): State<SharedState>) -> RootPage {
+    RootPage {}
 }
