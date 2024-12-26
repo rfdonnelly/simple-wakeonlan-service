@@ -77,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
     // write address like this to not make typos
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = TcpListener::bind(addr).await?;
-    tracing::debug!("listening on {}", listener.local_addr().unwrap());
+    tracing::debug!("listening on {}", listener.local_addr()?);
 
     axum::serve(listener, app.into_make_service()).await?;
 
