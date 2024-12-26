@@ -31,7 +31,9 @@ use ping_rs::send_ping_async as ping;
 
 #[derive(Template)]
 #[template(path = "pages/root.html")]
-struct RootPage {}
+struct RootPage {
+    devices: Vec<DeviceStatus>,
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -175,5 +177,17 @@ async fn get_devices(State(state): State<SharedState>) -> Json<Devices> {
 }
 
 async fn get_root(State(state): State<SharedState>) -> RootPage {
-    RootPage {}
+    let devices = &state.read().await.devices;
+    let devices: Vec<_> = devices
+        .iter()
+        .map(|(name, value)| {
+            DeviceStatus {
+                hostname: name.clone(),
+                mac: value.mac,
+                status: "offline".to_string(),
+            }
+        })
+        .collect();
+
+    RootPage { devices }
 }
