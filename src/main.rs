@@ -19,6 +19,8 @@ use tokio::sync::{RwLock};
 use std::fmt::Display;
 use std::str::FromStr;
 use std::net::SocketAddr;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
 use tokio::net::TcpListener;
 use tokio::net::lookup_host;
 use tower::{BoxError, ServiceBuilder};
@@ -26,7 +28,7 @@ use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use macaddr::MacAddr6 as MacAddr;
-use wake_on_lan::MagicPacket as WolPacket;
+use wake_on_lan::MagicPacket;
 use ping_rs::send_ping_async as ping;
 
 #[derive(Template)]
@@ -86,10 +88,11 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Default, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct Device {
     #[serde(deserialize_with = "deserialize_from_str")]
     mac: MacAddr,
+    ip: IpAddr,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -162,9 +165,11 @@ async fn post_device(
     let devices = &state.read().await.devices;
 
     if let Some(device) = devices.get(&device_name) {
-        let packet = WolPacket::new(device.mac.as_bytes().try_into().unwrap());
+        let packet = MagicPacket::new(device.mac.as_bytes().try_into().unwrap());
+        let to_socket_addr = (device.ip, 9);
+        let from_socket_addr = (IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
         tracing::debug!("sending wol packet to {}", device_name);
-        packet.send().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        packet.send_to(to_socket_addr, from_socket_addr).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         Ok(())
     } else {
         Err(StatusCode::NOT_FOUND)
@@ -199,9 +204,11 @@ async fn post_wake(
     let devices = &state.read().await.devices;
 
     if let Some(device) = devices.get(&device_name) {
-        let packet = WolPacket::new(device.mac.as_bytes().try_into().unwrap());
+        let packet = MagicPacket::new(device.mac.as_bytes().try_into().unwrap());
+        let to_socket_addr = (device.ip, 9);
+        let from_socket_addr = (IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
         tracing::debug!("sending wol packet to {}", device_name);
-        packet.send().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        packet.send_to(to_socket_addr, from_socket_addr).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         Ok(())
     } else {
         Err(StatusCode::NOT_FOUND)
