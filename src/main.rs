@@ -87,7 +87,6 @@ async fn main() -> anyhow::Result<()> {
 struct Device {
     #[serde(deserialize_with = "deserialize_from_str")]
     mac: MacAddr,
-    ip: Option<IpAddr>,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -131,7 +130,7 @@ async fn get_device(
     let devices = &state.read().await.devices;
 
     if let Some(device) = devices.get(&device_name) {
-        let ip_addr = get_ip(&device_name, device.ip)
+        let ip_addr = get_ip(&device_name)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         tracing::info!("pinging {} ({})", device_name, ip_addr);
@@ -154,16 +153,13 @@ async fn get_device(
     }
 }
 
-async fn get_ip(device_name: &str, ip: Option<IpAddr>) -> Result<IpAddr, ()> {
-    match ip {
-        Some(ip) => Ok(ip),
-        None => Ok(lookup_host((device_name, 0))
+async fn get_ip(device_name: &str) -> Result<IpAddr, ()> {
+        Ok(lookup_host((device_name, 0))
             .await
             .map_err(|_| ())?
             .next()
             .unwrap()
-            .ip()),
-    }
+            .ip())
 }
 
 async fn post_device(
@@ -174,7 +170,7 @@ async fn post_device(
 
     if let Some(device) = devices.get(&device_name) {
         let packet = MagicPacket::new(device.mac.as_bytes().try_into().unwrap());
-        let ip_addr = get_ip(&device_name, device.ip)
+        let ip_addr = get_ip(&device_name)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let to_socket_addr = (ip_addr, 9);
@@ -196,7 +192,7 @@ async fn get_status(
     let devices = &state.read().await.devices;
 
     if let Some(device) = devices.get(&device_name) {
-        let ip_addr = get_ip(&device_name, device.ip)
+        let ip_addr = get_ip(&device_name)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         tracing::info!("pinging {} ({})", device_name, ip_addr);
@@ -220,7 +216,7 @@ async fn post_wake(
 
     if let Some(device) = devices.get(&device_name) {
         let packet = MagicPacket::new(device.mac.as_bytes().try_into().unwrap());
-        let ip_addr = get_ip(&device_name, device.ip)
+        let ip_addr = get_ip(&device_name)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let to_socket_addr = (ip_addr, 9);
