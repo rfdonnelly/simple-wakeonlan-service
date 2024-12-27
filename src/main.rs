@@ -92,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
 struct Device {
     #[serde(deserialize_with = "deserialize_from_str")]
     mac: MacAddr,
-    ip: IpAddr,
+    ip: Option<IpAddr>,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -137,7 +137,7 @@ async fn get_device(
     let devices = &state.read().await.devices;
 
     if let Some(device) = devices.get(&device_name) {
-        let ip_addr = lookup_host(format!("{}:0", device_name)).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.next().unwrap().ip();
+        let ip_addr = get_ip(&device_name, device.ip).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         tracing::info!("pinging {} ({})", device_name, ip_addr);
         let data = [8; 8];
         let ping_result = ping(&ip_addr, Duration::from_secs(1), Arc::new(&data), None).await;
@@ -158,6 +158,24 @@ async fn get_device(
     }
 }
 
+async fn get_ip(
+    device_name: &str,
+    ip: Option<IpAddr>,
+) -> Result<IpAddr, ()> {
+    match ip {
+        Some(ip) => Ok(ip),
+        None => {
+            Ok(
+                lookup_host(format!("{}:0", device_name)).await
+                    .map_err(|_| ())?
+                    .next()
+                    .unwrap()
+                    .ip()
+            )
+        }
+    }
+}
+
 async fn post_device(
     Path(device_name): Path<String>,
     State(state): State<SharedState>,
@@ -166,7 +184,8 @@ async fn post_device(
 
     if let Some(device) = devices.get(&device_name) {
         let packet = MagicPacket::new(device.mac.as_bytes().try_into().unwrap());
-        let to_socket_addr = (device.ip, 9);
+        let ip_addr = get_ip(&device_name, device.ip).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let to_socket_addr = (ip_addr, 9);
         let from_socket_addr = (IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
         tracing::debug!("sending wol packet to {}", device_name);
         packet.send_to(to_socket_addr, from_socket_addr).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -183,7 +202,7 @@ async fn get_status(
     let devices = &state.read().await.devices;
 
     if let Some(device) = devices.get(&device_name) {
-        let ip_addr = lookup_host(format!("{}:0", device_name)).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.next().unwrap().ip();
+        let ip_addr = get_ip(&device_name, device.ip).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         tracing::info!("pinging {} ({})", device_name, ip_addr);
         let data = [8; 8];
         let ping_result = ping(&ip_addr, Duration::from_secs(1), Arc::new(&data), None).await;
@@ -205,7 +224,8 @@ async fn post_wake(
 
     if let Some(device) = devices.get(&device_name) {
         let packet = MagicPacket::new(device.mac.as_bytes().try_into().unwrap());
-        let to_socket_addr = (device.ip, 9);
+        let ip_addr = get_ip(&device_name, device.ip).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let to_socket_addr = (ip_addr, 9);
         let from_socket_addr = (IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
         tracing::debug!("sending wol packet to {}", device_name);
         packet.send_to(to_socket_addr, from_socket_addr).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
