@@ -157,7 +157,7 @@ async fn get_device(
 async fn get_ip(device_name: &str, ip: Option<IpAddr>) -> Result<IpAddr, ()> {
     match ip {
         Some(ip) => Ok(ip),
-        None => Ok(lookup_host(format!("{}:0", device_name))
+        None => Ok(lookup_host((device_name, 0))
             .await
             .map_err(|_| ())?
             .next()
