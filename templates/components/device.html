@@ -1,0 +1,22 @@
+<div>
+  <button
+    hx-post="/wake/{{device.name}}"
+    hx-swap="none"
+  >
+    Wake {{device.name}}
+  </button>
+
+  <button
+    hx-get="/status/{{device.name}}"
+    hx-target="#{{device.name}}-status"
+    hx-trigger="click, load"
+  >
+    Refresh
+  </button>
+
+  <div
+    id="{{device.name}}-status"
+  >
+    Unknown
+  </div>
+</div>

@@ -6,25 +6,6 @@
   Hello World
 
   {% for device in devices %}
-    <button
-      hx-post="/wake/{{device.name}}"
-      hx-swap="none"
-    >
-      Wake {{device.name}}
-    </button>
-
-    <button
-      hx-get="/status/{{device.name}}"
-      hx-target="#{{device.name}}-status"
-    >
-      Refresh
-    </button>
-
-    <div
-      id="{{device.name}}-status"
-    >
-      Offline
-    </div>
+    {% include "components/device.html" %}
   {% endfor %}
-
 {% endblock %}
