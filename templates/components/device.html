@@ -1,22 +1,28 @@
-<div>
-  <button
-    hx-post="/wake/{{device.name}}"
-    hx-swap="none"
-  >
-    Wake {{device.name}}
-  </button>
-
-  <button
-    hx-get="/status/{{device.name}}"
-    hx-target="#{{device.name}}-status"
-    hx-trigger="click, load"
-  >
-    Refresh
-  </button>
-
-  <div
-    id="{{device.name}}-status"
-  >
-    Unknown
+<div class="grid grid-cols-2 gap-4 items-center h-25">
+  <div class="flex justify-start space-x-4">
+    {% include "components/device-status.html" %}
+    <div
+      class="font-mono"
+    >
+      {{device.name}}
+    </div>
+  </div>
+  <div class="flex justify-end space-x-4">
+    <button
+      class="btn"
+      hx-post="/wake/{{device.name}}"
+      hx-swap="none"
+    >
+      Wake
+    </button>
+    <button
+      class="btn"
+      hx-get="/status/{{device.name}}"
+      hx-target="#{{device.name}}-status"
+      hx-swap="outerHTML"
+      hx-trigger="click, load"
+    >
+      Refresh
+    </button>
   </div>
 </div>

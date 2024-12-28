@@ -1,0 +1,11 @@
+{% let color -%}
+{% if device.status == "online" -%}
+  {% let color = "green" -%}
+{% else -%}
+  {% let color = "red" -%}
+{% endif -%}
+<div
+    id="{{device.name}}-status"
+    class="w-6 h-6 bg-{{color}}-500 rounded-lg"
+>
+</div>

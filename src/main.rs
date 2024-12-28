@@ -33,6 +33,12 @@ struct RootPage {
     devices: Vec<DeviceStatus>,
 }
 
+#[derive(Template)]
+#[template(path = "components/device-status.html")]
+struct DeviceStatusComponent {
+    device: DeviceStatus,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
@@ -76,7 +82,7 @@ async fn main() -> anyhow::Result<()> {
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = TcpListener::bind(addr).await?;
-    tracing::debug!("listening on {}", listener.local_addr()?);
+    tracing::debug!("listening on http://{}", listener.local_addr()?);
 
     axum::serve(listener, app.into_make_service()).await?;
 
@@ -188,7 +194,7 @@ async fn post_device(
 async fn get_status(
     Path(device_name): Path<String>,
     State(state): State<SharedState>,
-) -> Result<String, StatusCode> {
+) -> Result<DeviceStatusComponent, StatusCode> {
     let devices = &state.read().await.devices;
 
     if let Some(device) = devices.get(&device_name) {
@@ -199,10 +205,16 @@ async fn get_status(
         let data = [8; 8];
         let ping_result = ping(&ip_addr, Duration::from_secs(1), Arc::new(&data), None).await;
         tracing::info!("{:?}", ping_result);
-        match ping_result {
-            Ok(_) => Ok("online".to_string()),
-            Err(_) => Ok("offline".to_string()),
-        }
+        let status = match ping_result {
+            Ok(_) => "online",
+            Err(_) => "offline",
+        };
+        let device = DeviceStatus {
+            name: device_name.clone(),
+            mac: device.mac,
+            status: status.to_string(),
+        };
+        Ok(DeviceStatusComponent { device })
     } else {
         Err(StatusCode::NOT_FOUND)
     }
@@ -239,7 +251,7 @@ async fn get_devices(State(state): State<SharedState>) -> Json<Devices> {
 
 async fn get_root(State(state): State<SharedState>) -> RootPage {
     let devices = &state.read().await.devices;
-    let devices: Vec<_> = devices
+    let mut devices: Vec<_> = devices
         .iter()
         .map(|(name, value)| DeviceStatus {
             name: name.clone(),
@@ -247,6 +259,7 @@ async fn get_root(State(state): State<SharedState>) -> RootPage {
             status: "offline".to_string(),
         })
         .collect();
+    devices.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
     RootPage { devices }
 }
