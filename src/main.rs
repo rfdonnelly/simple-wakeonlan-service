@@ -6,19 +6,11 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
-
-use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::sync::RwLock;
-
-use std::fmt::Display;
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
-use std::net::SocketAddr;
-use std::str::FromStr;
-use tokio::net::lookup_host;
-use tokio::net::TcpListener;
+use tokio::{
+    net::{lookup_host, TcpListener},
+    sync::RwLock,
+};
 use tower::{BoxError, ServiceBuilder};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -26,6 +18,15 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use macaddr::MacAddr6 as MacAddr;
 use ping_rs::send_ping_async as ping;
 use wake_on_lan::MagicPacket;
+
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 
 #[derive(Template)]
 #[template(path = "pages/root.html")]
@@ -160,12 +161,12 @@ async fn get_device(
 }
 
 async fn get_ip(device_name: &str) -> Result<IpAddr, ()> {
-        Ok(lookup_host((device_name, 0))
-            .await
-            .map_err(|_| ())?
-            .next()
-            .unwrap()
-            .ip())
+    Ok(lookup_host((device_name, 0))
+        .await
+        .map_err(|_| ())?
+        .next()
+        .unwrap()
+        .ip())
 }
 
 async fn post_device(
