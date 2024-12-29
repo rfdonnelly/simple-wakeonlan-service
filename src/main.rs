@@ -101,7 +101,14 @@ struct DeviceStatus {
     name: String,
     #[serde(serialize_with = "serialize_to_string")]
     mac: MacAddr,
-    status: String,
+    status: PingStatus,
+}
+
+#[derive(Debug, Default, Clone, Copy, Serialize)]
+enum PingStatus {
+    Online,
+    #[default]
+    Offline,
 }
 
 fn deserialize_from_str<'de, S, D>(deserializer: D) -> Result<S, D::Error>
@@ -145,14 +152,14 @@ async fn get_device(
         let ping_result = ping(&ip_addr, Duration::from_secs(1), Arc::new(&data), None).await;
         tracing::info!("{:?}", ping_result);
         let status = match ping_result {
-            Ok(_) => "online",
-            Err(_) => "offline",
+            Ok(_) => PingStatus::Online,
+            Err(_) => PingStatus::Offline,
         };
 
         let device_status = DeviceStatus {
             name: device_name.clone(),
             mac: device.mac,
-            status: status.to_string(),
+            status: status,
         };
         Ok(Json(device_status))
     } else {
@@ -207,13 +214,13 @@ async fn get_status(
         let ping_result = ping(&ip_addr, Duration::from_secs(1), Arc::new(&data), None).await;
         tracing::info!("{:?}", ping_result);
         let status = match ping_result {
-            Ok(_) => "online",
-            Err(_) => "offline",
+            Ok(_) => PingStatus::Online,
+            Err(_) => PingStatus::Offline,
         };
         let device = DeviceStatus {
             name: device_name.clone(),
             mac: device.mac,
-            status: status.to_string(),
+            status: status,
         };
         Ok(DeviceStatusComponent { device })
     } else {
@@ -257,7 +264,7 @@ async fn get_root(State(state): State<SharedState>) -> RootPage {
         .map(|(name, value)| DeviceStatus {
             name: name.clone(),
             mac: value.mac,
-            status: "offline".to_string(),
+            status: PingStatus::Offline,
         })
         .collect();
     devices.sort_unstable_by(|a, b| a.name.cmp(&b.name));

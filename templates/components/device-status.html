@@ -1,11 +1,12 @@
-{% let color -%}
-{% if device.status == "online" -%}
-  {% let color = "green" -%}
-{% else -%}
-  {% let color = "red" -%}
-{% endif -%}
+{%- let color -%}
+{%- match device.status -%}
+  {%- when PingStatus::Online -%}
+      {%- let color = "success" -%}
+  {%- when PingStatus::Offline %}
+      {%- let color = "error" -%}
+{%- endmatch -%}
 <div
     id="{{device.name}}-status"
-    class="w-6 h-6 bg-{{color}}-500 rounded-lg"
+    class="w-6 h-6 bg-{{color}} rounded-lg"
 >
 </div>
