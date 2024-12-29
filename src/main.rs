@@ -109,6 +109,7 @@ enum PingStatus {
     Online,
     #[default]
     Offline,
+    DnsError,
 }
 
 fn deserialize_from_str<'de, S, D>(deserializer: D) -> Result<S, D::Error>
@@ -144,18 +145,7 @@ async fn get_device(
     let devices = &state.read().await.devices;
 
     if let Some(device) = devices.get(&device_name) {
-        let ip_addr = get_ip(&device_name)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        tracing::info!("pinging {} ({})", device_name, ip_addr);
-        let data = [8; 8];
-        let ping_result = ping(&ip_addr, Duration::from_secs(1), Arc::new(&data), None).await;
-        tracing::info!("{:?}", ping_result);
-        let status = match ping_result {
-            Ok(_) => PingStatus::Online,
-            Err(_) => PingStatus::Offline,
-        };
-
+        let status = ping_hostname(&device_name).await;
         let device_status = DeviceStatus {
             name: device_name.clone(),
             mac: device.mac,
@@ -167,7 +157,7 @@ async fn get_device(
     }
 }
 
-async fn get_ip(device_name: &str) -> Result<IpAddr, ()> {
+async fn resolve_hostname(device_name: &str) -> Result<IpAddr, ()> {
     Ok(lookup_host((device_name, 0))
         .await
         .map_err(|_| ())?
@@ -184,7 +174,7 @@ async fn post_device(
 
     if let Some(device) = devices.get(&device_name) {
         let packet = MagicPacket::new(device.mac.as_bytes().try_into().unwrap());
-        let ip_addr = get_ip(&device_name)
+        let ip_addr = resolve_hostname(&device_name)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let to_socket_addr = (ip_addr, 9);
@@ -206,17 +196,7 @@ async fn get_status(
     let devices = &state.read().await.devices;
 
     if let Some(device) = devices.get(&device_name) {
-        let ip_addr = get_ip(&device_name)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        tracing::info!("pinging {} ({})", device_name, ip_addr);
-        let data = [8; 8];
-        let ping_result = ping(&ip_addr, Duration::from_secs(1), Arc::new(&data), None).await;
-        tracing::info!("{:?}", ping_result);
-        let status = match ping_result {
-            Ok(_) => PingStatus::Online,
-            Err(_) => PingStatus::Offline,
-        };
+        let status = ping_hostname(&device_name).await;
         let device = DeviceStatus {
             name: device_name.clone(),
             mac: device.mac,
@@ -228,6 +208,22 @@ async fn get_status(
     }
 }
 
+async fn ping_hostname(hostname: &str) -> PingStatus {
+    let resolve_result = resolve_hostname(hostname).await;
+    let ip = match resolve_result {
+        Ok(ip) => ip,
+        Err(_) => return PingStatus::DnsError,
+    };
+    tracing::info!("pinging {} ({})", hostname, ip);
+
+    let data = [8; 8];
+    let ping_result = ping(&ip, Duration::from_secs(1), Arc::new(&data), None).await;
+    match ping_result {
+        Ok(_) => PingStatus::Online,
+        Err(_) => PingStatus::Offline,
+    }
+}
+
 async fn post_wake(
     Path(device_name): Path<String>,
     State(state): State<SharedState>,
@@ -236,7 +232,7 @@ async fn post_wake(
 
     if let Some(device) = devices.get(&device_name) {
         let packet = MagicPacket::new(device.mac.as_bytes().try_into().unwrap());
-        let ip_addr = get_ip(&device_name)
+        let ip_addr = resolve_hostname(&device_name)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let to_socket_addr = (ip_addr, 9);

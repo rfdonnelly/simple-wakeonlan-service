@@ -3,6 +3,8 @@
   {%- when PingStatus::Online -%}
       {%- let color = "success" -%}
   {%- when PingStatus::Offline %}
+      {%- let color = "neutral" -%}
+  {%- when PingStatus::DnsError %}
       {%- let color = "error" -%}
 {%- endmatch -%}
 <div
