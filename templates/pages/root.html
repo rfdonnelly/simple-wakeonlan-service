@@ -3,7 +3,11 @@
 {% block title %}Home{% endblock %}
 
 {% block content %}
-  <div class="grid grid-cols-1 w-96 mx-auto space-y-4 content-center h-full">
+  <div
+    class="grid grid-cols-1 w-96 mx-auto space-y-4 content-center h-full"
+    hx-ext="sse"
+    sse-connect="/status-sse"
+  >
     {% for device in devices %}
       {% include "components/device.html" %}
     {% endfor %}

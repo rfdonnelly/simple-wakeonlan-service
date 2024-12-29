@@ -3,14 +3,17 @@ use axum::{
     error_handling::HandleErrorLayer,
     extract::{Path, State},
     http::StatusCode,
+    response::sse::{Event, KeepAlive, Sse},
     routing::{get, post},
     Json, Router,
 };
+use futures_util::stream::{self, Stream};
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use tokio::{
     net::{lookup_host, TcpListener},
     sync::RwLock,
 };
+use tokio_stream::StreamExt;
 use tower::{BoxError, ServiceBuilder};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -21,6 +24,7 @@ use wake_on_lan::MagicPacket;
 
 use std::{
     collections::HashMap,
+    convert::Infallible,
     fmt::Display,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,
@@ -60,6 +64,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(get_root))
         .route("/status/:device_name", get(get_status))
+        .route("/status-sse", get(get_status_sse))
         .route("/wake/:device_name", post(post_wake))
         .route("/devices", get(get_devices))
         .route("/device/:device_name", get(get_device).post(post_device))
@@ -99,8 +104,8 @@ struct Device {
 #[derive(Debug, Default, Clone, Serialize)]
 struct DeviceStatus {
     name: String,
-    #[serde(serialize_with = "serialize_to_string")]
-    mac: MacAddr,
+    // #[serde(serialize_with = "serialize_to_string")]
+    // mac: MacAddr,
     status: PingStatus,
 }
 
@@ -148,7 +153,6 @@ async fn get_device(
         let status = ping_hostname(&device_name).await;
         let device_status = DeviceStatus {
             name: device_name.clone(),
-            mac: device.mac,
             status: status,
         };
         Ok(Json(device_status))
@@ -199,7 +203,6 @@ async fn get_status(
         let status = ping_hostname(&device_name).await;
         let device = DeviceStatus {
             name: device_name.clone(),
-            mac: device.mac,
             status: status,
         };
         Ok(DeviceStatusComponent { device })
@@ -222,6 +225,39 @@ async fn ping_hostname(hostname: &str) -> PingStatus {
         Ok(_) => PingStatus::Online,
         Err(_) => PingStatus::Offline,
     }
+}
+
+async fn get_status_sse(
+    State(state): State<SharedState>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let device_names: Vec<_> = {
+        let devices = &state.read().await.devices;
+        devices.keys().cloned().collect()
+    };
+
+    let stream = stream::unfold(
+        device_names.into_iter().cycle(),
+        move |mut device_names_iter| {
+            let device_name = device_names_iter.next().unwrap();
+            async move {
+                let status = ping_hostname(&device_name).await;
+                let device_status = DeviceStatus {
+                    name: device_name.clone(),
+                    status: status,
+                };
+                let component = DeviceStatusComponent {
+                    device: device_status,
+                };
+                let data = component.to_string();
+                let event = Event::default().data(data).event(device_name);
+                Some((event, device_names_iter))
+            }
+        },
+    )
+    .map(Ok)
+    .throttle(Duration::from_secs(1));
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 async fn post_wake(
@@ -259,7 +295,6 @@ async fn get_root(State(state): State<SharedState>) -> RootPage {
         .iter()
         .map(|(name, value)| DeviceStatus {
             name: name.clone(),
-            mac: value.mac,
             status: PingStatus::Offline,
         })
         .collect();

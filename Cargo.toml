@@ -8,12 +8,14 @@ anyhow = "1.0.94"
 askama = "0.12.1"
 askama_axum = "0.4.0"
 axum = { version = "0.7.9", features = ["macros"] }
+futures-util = "0.3.31"
 macaddr = { version = "1.0.1", features = ["serde_std"] }
 ping-rs = "0.1.2"
 serde = { version = "1.0.216", features = ["serde_derive"] }
 serde_json = "1.0.133"
 serde_yaml = "0.9.34"
 tokio = { version = "1.42.0", features = ["full"] }
+tokio-stream = "0.1.17"
 tower = { version = "0.5.2", features = ["timeout"] }
 tower-http = { version = "0.6.2", features = ["trace"] }
 tracing = "0.1.41"
