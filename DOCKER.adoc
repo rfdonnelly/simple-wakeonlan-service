@@ -68,3 +68,10 @@ hostname1:
 
 ...
 ----
+
+== Start
+
+[listing]
+----
+ssh $SERVER "cd $COMPOSE_PATH && docker compose up -d"
+----
