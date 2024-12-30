@@ -1,5 +1,6 @@
 init:
     cargo install cargo-watch
+    pnpm install
 
 dev-server:
     cargo watch -w src -w templates -w tailwind.config.js -w styles -x run
