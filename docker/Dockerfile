@@ -18,6 +18,7 @@ WORKDIR /build
 
 COPY ./ .
 
+# FIXME: Build assets
 RUN cargo build --target aarch64-unknown-linux-musl --release
 
 FROM scratch
@@ -28,6 +29,7 @@ COPY --from=builder /etc/group /etc/group
 WORKDIR /run
 
 COPY --from=builder /build/target/aarch64-unknown-linux-musl/release/simple-wakeonlan-service .
+COPY --from=builder /build/assets .
 
 USER user:user
 
