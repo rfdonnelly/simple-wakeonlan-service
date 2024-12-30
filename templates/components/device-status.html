@@ -1,13 +1,13 @@
 {%- let color -%}
 {%- match device.status -%}
   {%- when PingStatus::Online -%}
-      {%- let color = "success" -%}
+      {%- let color = "bg-success" -%}
   {%- when PingStatus::Offline %}
-      {%- let color = "neutral" -%}
+      {%- let color = "bg-neutral" -%}
   {%- when PingStatus::DnsError %}
-      {%- let color = "error" -%}
+      {%- let color = "bg-error" -%}
 {%- endmatch -%}
 <div
-  class="w-6 h-6 bg-{{color}} rounded-lg"
+  class="w-6 h-6 {{color}} rounded-lg"
 >
 </div>

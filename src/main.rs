@@ -15,7 +15,7 @@ use tokio::{
 };
 use tokio_stream::StreamExt;
 use tower::{BoxError, ServiceBuilder};
-use tower_http::trace::TraceLayer;
+use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use macaddr::MacAddr6 as MacAddr;
@@ -55,6 +55,8 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    let assets_path = std::env::current_dir().unwrap();
+
     let devices_file = std::fs::File::open("devices.yml")?;
     let devices: HashMap<String, Device> = serde_yaml::from_reader(devices_file)?;
 
@@ -67,6 +69,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/wake/:device_name", post(post_wake))
         .route("/devices", get(get_devices))
         .route("/device/:device_name", get(get_device).post(post_device))
+        .nest_service(
+            "/assets",
+            ServeDir::new(format!("{}/assets", assets_path.to_str().unwrap())),
+        )
         .layer(
             ServiceBuilder::new()
                 .layer(HandleErrorLayer::new(|error: BoxError| async move {
@@ -204,7 +210,9 @@ async fn get_status(
             name: device_name.clone(),
             status: status,
         };
-        Ok(DeviceStatusComponent { device: device_status })
+        Ok(DeviceStatusComponent {
+            device: device_status,
+        })
     } else {
         Err(StatusCode::NOT_FOUND)
     }
