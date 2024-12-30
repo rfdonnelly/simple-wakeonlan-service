@@ -57,7 +57,6 @@ async fn main() -> anyhow::Result<()> {
 
     let devices_file = std::fs::File::open("devices.yml")?;
     let devices: HashMap<String, Device> = serde_yaml::from_reader(devices_file)?;
-    tracing::info!("loaded devices {:?}", devices);
 
     let state = Arc::new(RwLock::new(AppState { devices }));
 
@@ -149,7 +148,7 @@ async fn get_device(
 ) -> Result<Json<DeviceStatus>, StatusCode> {
     let devices = &state.read().await.devices;
 
-    if let Some(device) = devices.get(&device_name) {
+    if let Some(_) = devices.get(&device_name) {
         let status = ping_hostname(&device_name).await;
         let device_status = DeviceStatus {
             name: device_name.clone(),
@@ -199,13 +198,13 @@ async fn get_status(
 ) -> Result<DeviceStatusComponent, StatusCode> {
     let devices = &state.read().await.devices;
 
-    if let Some(device) = devices.get(&device_name) {
+    if let Some(_) = devices.get(&device_name) {
         let status = ping_hostname(&device_name).await;
-        let device = DeviceStatus {
+        let device_status = DeviceStatus {
             name: device_name.clone(),
             status: status,
         };
-        Ok(DeviceStatusComponent { device })
+        Ok(DeviceStatusComponent { device: device_status })
     } else {
         Err(StatusCode::NOT_FOUND)
     }
@@ -217,7 +216,6 @@ async fn ping_hostname(hostname: &str) -> PingStatus {
         Ok(ip) => ip,
         Err(_) => return PingStatus::DnsError,
     };
-    tracing::info!("pinging {} ({})", hostname, ip);
 
     let data = [8; 8];
     let ping_result = ping(&ip, Duration::from_secs(1), Arc::new(&data), None).await;
@@ -292,8 +290,8 @@ async fn get_devices(State(state): State<SharedState>) -> Json<Devices> {
 async fn get_root(State(state): State<SharedState>) -> RootPage {
     let devices = &state.read().await.devices;
     let mut devices: Vec<_> = devices
-        .iter()
-        .map(|(name, value)| DeviceStatus {
+        .keys()
+        .map(|name| DeviceStatus {
             name: name.clone(),
             status: PingStatus::Offline,
         })
