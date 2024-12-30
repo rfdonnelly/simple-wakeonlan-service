@@ -1,0 +1,70 @@
+= Docker
+
+Build and deploy on RPi using Docker + Traefik.
+
+== Environment
+
+[source,sh]
+.`.envrc`
+----
+export SERVER=...
+export COMPOSE_PATH=...
+export DOCKER_HOST=ssh://$SERVER
+----
+
+== Build Image
+
+[listing]
+----
+docker buildx build --platform linux/arm64 -f docker/Dockerfile -t wol .
+----
+
+== Transfer Image
+
+[listing]
+----
+docker save wol | gzip | docker load
+----
+
+== Create a compose file
+
+[source,yml]
+.`$SERVER:$COMPOSE_PATH/compose.yml`
+----
+services:
+  wol:
+    image: wol
+    restart: always
+    container_name: wol
+    ports:
+    - 3000:3000
+    dns:
+    - 192.168.1.1
+    volumes:
+    - ./devices.yml:/run/devices.yml:ro
+    networks:
+    - traefik_default
+    labels:
+    - traefik.enable=true
+    - traefik.http.routers.wol.rule=Host(`wol`)
+    - traefik.http.routers.wol.tls=true
+    - traefik.http.services.wol.loadbalancer.server.port=3000
+
+networks:
+  traefik_default:
+    external: true
+----
+
+== Create a config file
+
+[source,yml]
+.`$SERVER:$COMPOSE_PATH/devices.yml`
+----
+hostname0:
+  mac: 00:11:22:33:44:55
+
+hostname1:
+  mac: 00:11:22:33:44:56
+
+...
+----

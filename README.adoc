@@ -2,16 +2,9 @@
 
 Provides a simple web UI for checking device power status (via ping) and for waking devices using wake-on-LAN.
 
-== Build Docker Image
-
-[listing]
-----
-docker buildx build --platform linux/arm64 -f docker/Dockerfile -t wol .
-----
-
 == Stack
 
 * Rust
 * Axum
-* HTMX
 * Askama
+* HTMX
