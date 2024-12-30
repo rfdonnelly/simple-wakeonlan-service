@@ -2,34 +2,10 @@
 
 Build and deploy on RPi using Docker + Traefik.
 
-== Environment
-
-[source,sh]
-.`.envrc`
-----
-export SERVER=...
-export COMPOSE_PATH=...
-export DOCKER_HOST=ssh://$SERVER
-----
-
-== Build Image
-
-[listing]
-----
-docker buildx build --platform linux/arm64 -f docker/Dockerfile -t wol .
-----
-
-== Transfer Image
-
-[listing]
-----
-docker save wol | gzip | docker load
-----
-
 == Create a compose file
 
 [source,yml]
-.`$SERVER:$COMPOSE_PATH/compose.yml`
+.`$COMPOSE_HOST:$COMPOSE_PROJECT_DIRECTORY/compose.yml`
 ----
 services:
   wol:
@@ -58,7 +34,7 @@ networks:
 == Create a config file
 
 [source,yml]
-.`$SERVER:$COMPOSE_PATH/devices.yml`
+.`$COMPOSE_HOST:$COMPOSE_PROJECT_DIRECTORY/devices.yml`
 ----
 hostname0:
   mac: 00:11:22:33:44:55
@@ -69,9 +45,32 @@ hostname1:
 ...
 ----
 
+== Environment
+
+[source,sh]
+.`.envrc`
+----
+export SERVER=...
+export COMPOSE_PATH=...
+----
+
+== Build Image
+
+[listing]
+----
+docker buildx build --platform linux/arm64 -f docker/Dockerfile -t wol .
+----
+
+== Transfer Image
+
+[listing]
+----
+docker save wol | gzip | docker --host $COMPOSE_HOST load
+----
+
 == Start
 
 [listing]
 ----
-ssh $SERVER "cd $COMPOSE_PATH && docker compose up -d"
+docker --host $COMPOSE_HOST compose --project-directory $COMPOSE_PROJECT_DIRECTORY up -d
 ----
