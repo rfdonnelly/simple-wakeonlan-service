@@ -76,10 +76,10 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(get_root))
         .route("/status/:device_name", get(get_status))
-        .route("/status-sse", get(get_status_sse))
+        .route("/status-stream", get(get_status_stream))
         .route("/wake/:device_name", post(post_wake))
-        .route("/devices", get(get_devices))
-        .route("/device/:device_name", get(get_device).post(post_device))
+        .route("/api/devices", get(get_devices))
+        .route("/api/device/:device_name", get(get_device).post(post_device))
         .nest_service("/assets", ServeDir::new(assets_path))
         .layer(
             ServiceBuilder::new()
@@ -241,7 +241,7 @@ async fn ping_hostname(hostname: &str) -> PingStatus {
     }
 }
 
-async fn get_status_sse(
+async fn get_status_stream(
     State(state): State<SharedState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let device_names: Vec<_> = {
