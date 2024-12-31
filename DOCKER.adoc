@@ -12,19 +12,20 @@ services:
     image: wol
     restart: always
     container_name: wol
-    ports:
-    - 3000:3000
     dns:
     - 192.168.1.1
     volumes:
-    - ./devices.yml:/run/devices.yml:ro
+    - ./config:/config:ro
     networks:
     - traefik_default
     labels:
     - traefik.enable=true
     - traefik.http.routers.wol.rule=Host(`wol`)
-    - traefik.http.routers.wol.tls=true
-    - traefik.http.services.wol.loadbalancer.server.port=3000
+    - traefik.http.services.wol.loadbalancer.server.port=8080
+    environment:
+      APP_CONFIG_FILE: /config/config.yml
+      APP_BIND_IP: 0.0.0.0
+      APP_BIND_PORT: 8080
 
 networks:
   traefik_default:
