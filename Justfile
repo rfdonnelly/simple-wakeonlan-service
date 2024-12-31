@@ -16,3 +16,10 @@ dev:
     pid2=$!
     trap "kill $pid1 pid2" EXIT
     wait $pid1 $pid2
+
+docker-build:
+    docker buildx build --platform linux/arm64 -f docker/Dockerfile -t wol .
+
+docker-deploy:
+    docker save wol | gzip | docker --host ssh://$COMPOSE_HOST load
+    ssh $COMPOSE_HOST "cd $COMPOSE_PATH && docker compose up -d"

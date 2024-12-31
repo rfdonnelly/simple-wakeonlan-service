@@ -50,7 +50,7 @@ hostname1:
 [source,sh]
 .`.envrc`
 ----
-export SERVER=...
+export COMPOSE_HOST=...
 export COMPOSE_PATH=...
 ----
 
@@ -65,12 +65,12 @@ docker buildx build --platform linux/arm64 -f docker/Dockerfile -t wol .
 
 [listing]
 ----
-docker save wol | gzip | docker --host $COMPOSE_HOST load
+docker save wol | gzip | docker --host ssh://$COMPOSE_HOST load
 ----
 
 == Start
 
 [listing]
 ----
-docker --host $COMPOSE_HOST compose --project-directory $COMPOSE_PROJECT_DIRECTORY up -d
+ssh $COMPOSE_HOST "cd $COMPOSE_PATH && docker compose up -d"
 ----

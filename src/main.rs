@@ -55,10 +55,21 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let assets_path = std::env::current_dir().unwrap();
+    let assets_path: std::path::PathBuf = std::env::var("APP_ASSETS_PATH")
+        .unwrap_or_else(|_| "./assets".to_string())
+        .into();
+    let config_path: std::path::PathBuf = std::env::var("APP_CONFIG_FILE")
+        .unwrap_or_else(|_| "devices.yml".to_string())
+        .into();
+    let bind_ip: IpAddr = std::env::var("APP_BIND_IP")
+        .unwrap_or_else(|_| "0.0.0.0".to_string())
+        .parse()?;
+    let bind_port: u16 = std::env::var("APP_PORT")
+        .unwrap_or_else(|_| "8080".to_string())
+        .parse()?;
 
-    let devices_file = std::fs::File::open("devices.yml")?;
-    let devices: HashMap<String, Device> = serde_yaml::from_reader(devices_file)?;
+    let config_file = std::fs::File::open(config_path)?;
+    let devices: HashMap<String, Device> = serde_yaml::from_reader(config_file)?;
 
     let state = Arc::new(RwLock::new(AppState { devices }));
 
@@ -69,10 +80,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/wake/:device_name", post(post_wake))
         .route("/devices", get(get_devices))
         .route("/device/:device_name", get(get_device).post(post_device))
-        .nest_service(
-            "/assets",
-            ServeDir::new(format!("{}/assets", assets_path.to_str().unwrap())),
-        )
+        .nest_service("/assets", ServeDir::new(assets_path))
         .layer(
             ServiceBuilder::new()
                 .layer(HandleErrorLayer::new(|error: BoxError| async move {
@@ -91,8 +99,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .with_state(Arc::clone(&state));
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
-    let listener = TcpListener::bind(addr).await?;
+    let bind_addr = SocketAddr::from((bind_ip, bind_port));
+    let listener = TcpListener::bind(bind_addr).await?;
     tracing::debug!("listening on http://{}", listener.local_addr()?);
 
     axum::serve(listener, app.into_make_service()).await?;
