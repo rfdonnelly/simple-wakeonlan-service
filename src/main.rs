@@ -11,7 +11,7 @@ use futures_util::stream::Stream;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use tokio::{
     net::{lookup_host, TcpListener},
-    sync::broadcast,
+    sync::{broadcast, Semaphore},
     time,
 };
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
@@ -78,11 +78,11 @@ async fn main() -> anyhow::Result<()> {
     let config_file = std::fs::File::open(config_path)?;
     let devices: HashMap<String, Device> = serde_yaml::from_reader(config_file)?;
 
-    let (events, _rx) = broadcast::channel(10);
-    let state = Arc::new(AppState { devices, events });
-    let event_loop_state = state.clone();
-    tokio::spawn(async move {
-        event_loop(event_loop_state).await;
+    let (events, _) = broadcast::channel(10);
+    let state = Arc::new(AppState {
+        devices,
+        events,
+        single_event_loop: Arc::new(Semaphore::new(1)),
     });
 
     let app = Router::new()
@@ -168,6 +168,7 @@ type Devices = HashMap<String, Device>;
 struct AppState {
     devices: Devices,
     events: broadcast::Sender<Event>,
+    single_event_loop: Arc<Semaphore>,
 }
 
 async fn get_device(
@@ -203,7 +204,10 @@ async fn event_loop(state: SharedState) {
             };
             let data = component.to_string();
             let event = Event::default().data(data).event(device_name);
-            state.events.send(event).unwrap();
+            let send_result = state.events.send(event);
+            if send_result.is_err() {
+                return;
+            }
             inner_interval.tick().await;
         }
         outer_interval.tick().await;
@@ -262,6 +266,14 @@ async fn get_status_stream(
     State(state): State<SharedState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let events = state.events.subscribe();
+
+    if let Ok(permit) = state.single_event_loop.clone().try_acquire_owned() {
+        let event_loop_state = state.clone();
+        tokio::spawn(async move {
+            event_loop(event_loop_state).await;
+            permit.forget();
+        });
+    }
 
     let stream = BroadcastStream::new(events)
         .filter_map(Result::ok)
