@@ -7,13 +7,13 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use futures_util::stream::{self, Stream};
+use futures_util::stream::Stream;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use tokio::{
     net::{lookup_host, TcpListener},
-    sync::RwLock,
+    sync::broadcast,
 };
-use tokio_stream::StreamExt;
+use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use tower::{BoxError, ServiceBuilder};
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -71,15 +71,22 @@ async fn main() -> anyhow::Result<()> {
     let config_file = std::fs::File::open(config_path)?;
     let devices: HashMap<String, Device> = serde_yaml::from_reader(config_file)?;
 
-    let state = Arc::new(RwLock::new(AppState { devices }));
+    let (events, _rx) = broadcast::channel(10);
+    let state = Arc::new(AppState { devices, events });
+    let event_loop_state = state.clone();
+    tokio::spawn(async move {
+        event_loop(event_loop_state).await;
+    });
 
     let app = Router::new()
         .route("/", get(get_root))
-        .route("/status/:device_name", get(get_status))
         .route("/status-stream", get(get_status_stream))
         .route("/wake/:device_name", post(post_wake))
         .route("/api/devices", get(get_devices))
-        .route("/api/device/:device_name", get(get_device).post(post_device))
+        .route(
+            "/api/device/:device_name",
+            get(get_device).post(post_device),
+        )
         .nest_service("/assets", ServeDir::new(assets_path))
         .layer(
             ServiceBuilder::new()
@@ -148,19 +155,19 @@ where
     serializer.serialize_str(&v.to_string())
 }
 
-type SharedState = Arc<RwLock<AppState>>;
+type SharedState = Arc<AppState>;
 type Devices = HashMap<String, Device>;
 
-#[derive(Default)]
 struct AppState {
     devices: Devices,
+    events: broadcast::Sender<Event>,
 }
 
 async fn get_device(
     Path(device_name): Path<String>,
     State(state): State<SharedState>,
 ) -> Result<Json<DeviceStatus>, StatusCode> {
-    let devices = &state.read().await.devices;
+    let devices = &state.devices;
 
     if let Some(_) = devices.get(&device_name) {
         let status = ping_hostname(&device_name).await;
@@ -171,6 +178,23 @@ async fn get_device(
         Ok(Json(device_status))
     } else {
         Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn event_loop(state: SharedState) {
+    for device_name in state.devices.keys().cycle() {
+        let status = ping_hostname(&device_name).await;
+        let device_status = DeviceStatus {
+            name: device_name.clone(),
+            status: status,
+        };
+        let component = DeviceStatusComponent {
+            device: device_status,
+        };
+        let data = component.to_string();
+        let event = Event::default().data(data).event(device_name);
+        state.events.send(event).unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 
@@ -187,7 +211,7 @@ async fn post_device(
     Path(device_name): Path<String>,
     State(state): State<SharedState>,
 ) -> Result<(), StatusCode> {
-    let devices = &state.read().await.devices;
+    let devices = &state.devices;
 
     if let Some(device) = devices.get(&device_name) {
         let packet = MagicPacket::new(device.mac.as_bytes().try_into().unwrap());
@@ -201,26 +225,6 @@ async fn post_device(
             .send_to(to_socket_addr, from_socket_addr)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         Ok(())
-    } else {
-        Err(StatusCode::NOT_FOUND)
-    }
-}
-
-async fn get_status(
-    Path(device_name): Path<String>,
-    State(state): State<SharedState>,
-) -> Result<DeviceStatusComponent, StatusCode> {
-    let devices = &state.read().await.devices;
-
-    if let Some(_) = devices.get(&device_name) {
-        let status = ping_hostname(&device_name).await;
-        let device_status = DeviceStatus {
-            name: device_name.clone(),
-            status: status,
-        };
-        Ok(DeviceStatusComponent {
-            device: device_status,
-        })
     } else {
         Err(StatusCode::NOT_FOUND)
     }
@@ -244,32 +248,12 @@ async fn ping_hostname(hostname: &str) -> PingStatus {
 async fn get_status_stream(
     State(state): State<SharedState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let device_names: Vec<_> = {
-        let devices = &state.read().await.devices;
-        devices.keys().cloned().collect()
-    };
+    let events = state.events.subscribe();
 
-    let stream = stream::unfold(
-        device_names.into_iter().cycle(),
-        move |mut device_names_iter| {
-            let device_name = device_names_iter.next().unwrap();
-            async move {
-                let status = ping_hostname(&device_name).await;
-                let device_status = DeviceStatus {
-                    name: device_name.clone(),
-                    status: status,
-                };
-                let component = DeviceStatusComponent {
-                    device: device_status,
-                };
-                let data = component.to_string();
-                let event = Event::default().data(data).event(device_name);
-                Some((event, device_names_iter))
-            }
-        },
-    )
-    .map(Ok)
-    .throttle(Duration::from_secs(1));
+    let stream = BroadcastStream::new(events)
+        .filter_map(Result::ok)
+        .map(Ok)
+        .throttle(Duration::from_secs(1));
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
@@ -278,7 +262,7 @@ async fn post_wake(
     Path(device_name): Path<String>,
     State(state): State<SharedState>,
 ) -> Result<(), StatusCode> {
-    let devices = &state.read().await.devices;
+    let devices = &state.devices;
 
     if let Some(device) = devices.get(&device_name) {
         let packet = MagicPacket::new(device.mac.as_bytes().try_into().unwrap());
@@ -298,13 +282,13 @@ async fn post_wake(
 }
 
 async fn get_devices(State(state): State<SharedState>) -> Json<Devices> {
-    let devices = &state.read().await.devices;
+    let devices = &state.devices;
 
     Json(devices.clone())
 }
 
 async fn get_root(State(state): State<SharedState>) -> RootPage {
-    let devices = &state.read().await.devices;
+    let devices = &state.devices;
     let mut devices: Vec<_> = devices
         .keys()
         .map(|name| DeviceStatus {
