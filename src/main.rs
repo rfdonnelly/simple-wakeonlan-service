@@ -12,6 +12,7 @@ use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use tokio::{
     net::{lookup_host, TcpListener},
     sync::broadcast,
+    time,
 };
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use tower::{BoxError, ServiceBuilder};
@@ -43,6 +44,12 @@ struct RootPage {
 struct DeviceStatusComponent {
     device: DeviceStatus,
 }
+
+const PING_TIMEOUT: Duration = Duration::from_millis(500);
+const DNS_TIMEOUT: Duration = Duration::from_millis(500);
+const EVENT_LOOP_MAJOR_CYCLE: Duration = Duration::from_secs(2);
+const EVENT_LOOP_MINOR_CYCLE: Duration = Duration::from_millis(1);
+const SSE_PERIOD: Duration = Duration::from_millis(1);
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -182,29 +189,35 @@ async fn get_device(
 }
 
 async fn event_loop(state: SharedState) {
-    for device_name in state.devices.keys().cycle() {
-        let status = ping_hostname(&device_name).await;
-        let device_status = DeviceStatus {
-            name: device_name.clone(),
-            status: status,
-        };
-        let component = DeviceStatusComponent {
-            device: device_status,
-        };
-        let data = component.to_string();
-        let event = Event::default().data(data).event(device_name);
-        state.events.send(event).unwrap();
-        tokio::time::sleep(Duration::from_secs(1)).await;
+    let mut outer_interval = time::interval(EVENT_LOOP_MAJOR_CYCLE);
+    let mut inner_interval = time::interval(EVENT_LOOP_MINOR_CYCLE);
+    loop {
+        for device_name in state.devices.keys() {
+            let status = ping_hostname(&device_name).await;
+            let device_status = DeviceStatus {
+                name: device_name.clone(),
+                status: status,
+            };
+            let component = DeviceStatusComponent {
+                device: device_status,
+            };
+            let data = component.to_string();
+            let event = Event::default().data(data).event(device_name);
+            state.events.send(event).unwrap();
+            inner_interval.tick().await;
+        }
+        outer_interval.tick().await;
     }
 }
 
 async fn resolve_hostname(device_name: &str) -> Result<IpAddr, ()> {
-    Ok(lookup_host((device_name, 0))
-        .await
-        .map_err(|_| ())?
-        .next()
-        .unwrap()
-        .ip())
+    let host = (device_name, 0);
+    let timeout_result = time::timeout(DNS_TIMEOUT, lookup_host(host)).await;
+
+    let lookup_result = timeout_result.map_err(|_| ())?;
+    let mut addrs = lookup_result.map_err(|_| ())?;
+    let addr = addrs.next().ok_or(())?;
+    Ok(addr.ip())
 }
 
 async fn post_device(
@@ -238,7 +251,7 @@ async fn ping_hostname(hostname: &str) -> PingStatus {
     };
 
     let data = [8; 8];
-    let ping_result = ping(&ip, Duration::from_secs(1), Arc::new(&data), None).await;
+    let ping_result = ping(&ip, PING_TIMEOUT, Arc::new(&data), None).await;
     match ping_result {
         Ok(_) => PingStatus::Online,
         Err(_) => PingStatus::Offline,
@@ -253,7 +266,7 @@ async fn get_status_stream(
     let stream = BroadcastStream::new(events)
         .filter_map(Result::ok)
         .map(Ok)
-        .throttle(Duration::from_secs(1));
+        .throttle(SSE_PERIOD);
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
