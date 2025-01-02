@@ -176,11 +176,11 @@ async fn get_device(
 ) -> Result<Json<DeviceStatus>, StatusCode> {
     let devices = &state.devices;
 
-    if let Some(_) = devices.get(&device_name) {
+    if devices.get(&device_name).is_some() {
         let status = ping_hostname(&device_name).await;
         let device_status = DeviceStatus {
             name: device_name.clone(),
-            status: status,
+            status,
         };
         Ok(Json(device_status))
     } else {
@@ -193,10 +193,10 @@ async fn event_loop(state: SharedState) {
     let mut inner_interval = time::interval(EVENT_LOOP_MINOR_CYCLE);
     loop {
         for device_name in state.devices.keys() {
-            let status = ping_hostname(&device_name).await;
+            let status = ping_hostname(device_name).await;
             let device_status = DeviceStatus {
                 name: device_name.clone(),
-                status: status,
+                status,
             };
             let component = DeviceStatusComponent {
                 device: device_status,
