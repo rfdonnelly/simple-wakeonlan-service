@@ -277,7 +277,7 @@ async fn get_status_stream(
         let event_loop_state = state.clone();
         tokio::spawn(async move {
             event_loop(event_loop_state).await;
-            permit.forget();
+            drop(permit);
         });
     }
 
