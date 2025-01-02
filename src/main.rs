@@ -168,6 +168,12 @@ type Devices = HashMap<String, Device>;
 struct AppState {
     devices: Devices,
     events: broadcast::Sender<Event>,
+
+    // Limits the number of event loop instances to zero or one
+    //
+    // The event loop is started when the SSE stream request is made and no event loop is currently
+    // running.  Successive SSE stream requests will use the single event loop.  The event loop
+    // terminates when all SSE streams are closed.
     single_event_loop: Arc<Semaphore>,
 }
 
