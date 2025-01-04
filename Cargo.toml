@@ -7,7 +7,7 @@ edition = "2021"
 anyhow = "1.0.94"
 askama = "0.12.1"
 askama_axum = "0.4.0"
-axum = { version = "0.7.9", features = ["macros"] }
+axum = { version = "0.8", features = ["macros"] }
 futures-util = "0.3.31"
 macaddr = { version = "1.0.1", features = ["serde_std"] }
 ping-rs = "0.1.2"
