@@ -75,8 +75,13 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "8080".to_string())
         .parse()?;
 
-    let config_file = std::fs::File::open(config_path)?;
-    let devices: HashMap<String, Device> = serde_yaml::from_reader(config_file)?;
+    let config_file = std::fs::File::open(&config_path)?;
+    let devices: Devices = serde_yaml::from_reader(config_file)?;
+    tracing::info!(
+        "loaded configuration from {}: {:?}",
+        config_path.display(),
+        devices
+    );
 
     let (events, _) = broadcast::channel(10);
     let state = Arc::new(AppState {
@@ -124,15 +129,19 @@ async fn main() -> anyhow::Result<()> {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct Device {
-    #[serde(deserialize_with = "deserialize_from_str")]
-    mac: MacAddr,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_opt_mac",
+        serialize_with = "serialize_option_to_string"
+    )]
+    mac: Option<MacAddr>,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
 struct DeviceStatus {
     name: String,
-    // #[serde(serialize_with = "serialize_to_string")]
-    // mac: MacAddr,
+    #[serde(serialize_with = "serialize_option_to_string")]
+    mac: Option<MacAddr>,
     status: PingStatus,
 }
 
@@ -144,22 +153,36 @@ enum PingStatus {
     DnsError,
 }
 
+#[derive(Deserialize)]
+struct WrappedMacAddr(#[serde(deserialize_with = "deserialize_from_str")] MacAddr);
+
+fn deserialize_opt_mac<'de, D>(deserializer: D) -> Result<Option<MacAddr>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<WrappedMacAddr>::deserialize(deserializer)
+        .map(|option| option.map(|wrapped| wrapped.0))
+}
+
 fn deserialize_from_str<'de, S, D>(deserializer: D) -> Result<S, D::Error>
 where
     S: FromStr,
     S::Err: Display,
     D: Deserializer<'de>,
 {
+    // Option::<String>::deserialize(deserializer)
+    //     .and_then(|s| Ok(s.and_then(|s| S::from_str(&s).map_error(de::Error::custom))))
     let s: String = Deserialize::deserialize(deserializer)?;
     S::from_str(&s).map_err(de::Error::custom)
 }
 
-fn serialize_to_string<T, S>(v: &T, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_option_to_string<T, S>(v: &Option<T>, serializer: S) -> Result<S::Ok, S::Error>
 where
     T: ToString,
     S: Serializer,
 {
-    serializer.serialize_str(&v.to_string())
+    let v = v.as_ref().and_then(|v| Some(v.to_string()));
+    Option::<String>::serialize(&v, serializer)
 }
 
 type SharedState = Arc<AppState>;
@@ -187,6 +210,7 @@ async fn get_device(
         let status = ping_hostname(&device_name).await;
         let device_status = DeviceStatus {
             name: device_name.clone(),
+            mac: Default::default(),
             status,
         };
         Ok(Json(device_status))
@@ -199,10 +223,12 @@ async fn event_loop(state: SharedState) {
     let mut outer_interval = time::interval(EVENT_LOOP_MAJOR_CYCLE);
     let mut inner_interval = time::interval(EVENT_LOOP_MINOR_CYCLE);
     loop {
+        tracing::debug!("active subscribers: {}", state.events.receiver_count());
         for device_name in state.devices.keys() {
             let status = ping_hostname(device_name).await;
             let device_status = DeviceStatus {
                 name: device_name.clone(),
+                mac: Default::default(),
                 status,
             };
             let component = DeviceStatusComponent {
@@ -237,17 +263,21 @@ async fn post_device(
     let devices = &state.devices;
 
     if let Some(device) = devices.get(&device_name) {
-        let packet = MagicPacket::new(device.mac.as_bytes().try_into().unwrap());
-        let ip_addr = resolve_hostname(&device_name)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let to_socket_addr = (ip_addr, 9);
-        let from_socket_addr = (IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
-        tracing::debug!("sending wol packet to {}", device_name);
-        packet
-            .send_to(to_socket_addr, from_socket_addr)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        Ok(())
+        if let Some(mac) = device.mac {
+            let packet = MagicPacket::new(mac.as_bytes().try_into().unwrap());
+            let ip_addr = resolve_hostname(&device_name)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let to_socket_addr = (ip_addr, 9);
+            let from_socket_addr = (IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
+            tracing::debug!("sending wol packet to {}", device_name);
+            packet
+                .send_to(to_socket_addr, from_socket_addr)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            Ok(())
+        } else {
+            Err(StatusCode::BAD_REQUEST)
+        }
     } else {
         Err(StatusCode::NOT_FOUND)
     }
@@ -296,17 +326,21 @@ async fn post_wake(
     let devices = &state.devices;
 
     if let Some(device) = devices.get(&device_name) {
-        let packet = MagicPacket::new(device.mac.as_bytes().try_into().unwrap());
-        let ip_addr = resolve_hostname(&device_name)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let to_socket_addr = (ip_addr, 9);
-        let from_socket_addr = (IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
-        tracing::debug!("sending wol packet to {}", device_name);
-        packet
-            .send_to(to_socket_addr, from_socket_addr)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        Ok(())
+        if let Some(mac) = device.mac {
+            let packet = MagicPacket::new(mac.as_bytes().try_into().unwrap());
+            let ip_addr = resolve_hostname(&device_name)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let to_socket_addr = (ip_addr, 9);
+            let from_socket_addr = (IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
+            tracing::debug!("sending wol packet to {}", device_name);
+            packet
+                .send_to(to_socket_addr, from_socket_addr)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            Ok(())
+        } else {
+            Err(StatusCode::BAD_REQUEST)
+        }
     } else {
         Err(StatusCode::NOT_FOUND)
     }
@@ -318,12 +352,14 @@ async fn get_devices(State(state): State<SharedState>) -> Json<Devices> {
     Json(devices.clone())
 }
 
+#[axum::debug_handler]
 async fn get_root(State(state): State<SharedState>) -> RootPage {
     let devices = &state.devices;
     let mut devices: Vec<_> = devices
-        .keys()
-        .map(|name| DeviceStatus {
+        .iter()
+        .map(|(name, device)| DeviceStatus {
             name: name.clone(),
+            mac: device.mac,
             status: PingStatus::Offline,
         })
         .collect();

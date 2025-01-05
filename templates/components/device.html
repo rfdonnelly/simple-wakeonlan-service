@@ -13,6 +13,7 @@
     </div>
   </div>
   <div class="flex justify-end space-x-4">
+    {%- if device.mac.is_some() -%}
     <button
       class="btn"
       hx-post="/wake/{{device.name}}"
@@ -20,5 +21,6 @@
     >
       Wake
     </button>
+    {%- endif -%}
   </div>
 </div>
