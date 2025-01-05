@@ -11,11 +11,9 @@ dev-tailwind:
 dev:
     #!/bin/sh
     just dev-tailwind &
-    pid1=$!
     just dev-server &
-    pid2=$!
-    trap "kill $pid1 pid2" EXIT
-    wait $pid1 $pid2
+    trap 'kill $(jobs -pr)' EXIT
+    wait
 
 docker-build:
     docker buildx build --platform linux/arm64 -f docker/Dockerfile -t wol .
