@@ -3,13 +3,15 @@
 {% block title %}Wake-on-LAN{% endblock %}
 
 {% block content %}
-  <div
-    class="grid grid-cols-1 w-96 mx-auto space-y-4 content-center h-full"
-    hx-ext="sse"
-    sse-connect="/status-stream"
-  >
-    {% for device in devices %}
-      {% include "components/device.html" %}
-    {% endfor %}
+  <div class="h-full content-center">
+    <div
+      class="flex flex-col w-96 mx-auto space-y-4 p-4"
+      hx-ext="sse"
+      sse-connect="/status-stream"
+    >
+      {% for device in devices %}
+        {% include "components/device.html" %}
+      {% endfor %}
+    </div>
   </div>
 {% endblock %}
