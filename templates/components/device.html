@@ -15,7 +15,7 @@
   <div class="flex justify-end space-x-4">
     {%- if device.mac.is_some() -%}
     <button
-      class="btn"
+      class="btn btn-xs btn-primary"
       hx-post="/wake/{{device.name}}"
       hx-swap="none"
     >
