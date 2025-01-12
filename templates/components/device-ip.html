@@ -1,0 +1,6 @@
+IP:
+{% if let Some(ip) = device.ip -%}
+{{ip}}
+{%- else -%}
+None
+{%- endif -%}

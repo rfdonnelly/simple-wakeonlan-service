@@ -36,13 +36,19 @@ use std::{
 #[derive(Template)]
 #[template(path = "pages/root.html")]
 struct RootPage {
-    devices: Vec<DeviceStatus>,
+    devices: Vec<DeviceInfo>,
 }
 
 #[derive(Template)]
 #[template(path = "components/device-status.html")]
 struct DeviceStatusComponent {
     device: DeviceStatus,
+}
+
+#[derive(Template)]
+#[template(path = "components/device-ip.html")]
+struct DeviceIpComponent {
+    device: DeviceIp,
 }
 
 const PING_TIMEOUT: Duration = Duration::from_millis(500);
@@ -128,7 +134,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct Device {
+struct DeviceConfig {
     #[serde(
         default,
         deserialize_with = "deserialize_opt_mac",
@@ -138,11 +144,22 @@ struct Device {
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
-struct DeviceStatus {
+struct DeviceInfo {
     name: String,
     #[serde(serialize_with = "serialize_option_to_string")]
     mac: Option<MacAddr>,
+    ip: Option<IpAddr>,
     status: PingStatus,
+}
+
+#[derive(Debug, Default, Clone, Serialize)]
+struct DeviceStatus {
+    status: PingStatus,
+}
+
+#[derive(Debug, Default, Clone, Serialize)]
+struct DeviceIp {
+    ip: Option<IpAddr>,
 }
 
 #[derive(Debug, Default, Clone, Copy, Serialize)]
@@ -186,7 +203,7 @@ where
 }
 
 type SharedState = Arc<AppState>;
-type Devices = HashMap<String, Device>;
+type Devices = HashMap<String, DeviceConfig>;
 
 struct AppState {
     devices: Devices,
@@ -203,14 +220,15 @@ struct AppState {
 async fn get_device(
     Path(device_name): Path<String>,
     State(state): State<SharedState>,
-) -> Result<Json<DeviceStatus>, StatusCode> {
+) -> Result<Json<DeviceInfo>, StatusCode> {
     let devices = &state.devices;
 
     if devices.get(&device_name).is_some() {
         let status = ping_hostname(&device_name).await;
-        let device_status = DeviceStatus {
+        let device_status = DeviceInfo {
             name: device_name.clone(),
             mac: Default::default(),
+            ip: Default::default(),
             status,
         };
         Ok(Json(device_status))
@@ -223,22 +241,40 @@ async fn event_loop(state: SharedState) {
     let mut outer_interval = time::interval(EVENT_LOOP_MAJOR_CYCLE);
     let mut inner_interval = time::interval(EVENT_LOOP_MINOR_CYCLE);
     loop {
-        tracing::debug!("active subscribers: {}", state.events.receiver_count());
+        // tracing::debug!("active subscribers: {}", state.events.receiver_count());
         for device_name in state.devices.keys() {
-            let status = ping_hostname(device_name).await;
-            let device_status = DeviceStatus {
-                name: device_name.clone(),
-                mac: Default::default(),
-                status,
+            let ip = resolve_hostname(device_name).await.ok();
+            let status = match ip {
+                None => PingStatus::DnsError,
+                Some(ip) => ping_ip(&ip).await,
             };
-            let component = DeviceStatusComponent {
-                device: device_status,
-            };
-            let data = component.to_string();
-            let event = Event::default().data(data).event(device_name);
-            let send_result = state.events.send(event);
-            if send_result.is_err() {
-                return;
+
+            {
+                let data = DeviceStatusComponent {
+                    device: DeviceStatus { status },
+                }
+                .to_string();
+                let event = Event::default()
+                    .data(data)
+                    .event(format!("{}-status", device_name));
+                let send_result = state.events.send(event);
+                if send_result.is_err() {
+                    return;
+                }
+            }
+
+            {
+                let data = DeviceIpComponent {
+                    device: DeviceIp { ip },
+                }
+                .to_string();
+                let event = Event::default()
+                    .data(data)
+                    .event(format!("{}-ip", device_name));
+                let send_result = state.events.send(event);
+                if send_result.is_err() {
+                    return;
+                }
             }
             inner_interval.tick().await;
         }
@@ -290,8 +326,12 @@ async fn ping_hostname(hostname: &str) -> PingStatus {
         Err(_) => return PingStatus::DnsError,
     };
 
+    ping_ip(&ip).await
+}
+
+async fn ping_ip(ip: &IpAddr) -> PingStatus {
     let data = [8; 8];
-    let ping_result = ping(&ip, PING_TIMEOUT, Arc::new(&data), None).await;
+    let ping_result = ping(ip, PING_TIMEOUT, Arc::new(&data), None).await;
     match ping_result {
         Ok(_) => PingStatus::Online,
         Err(_) => PingStatus::Offline,
@@ -357,9 +397,10 @@ async fn get_root(State(state): State<SharedState>) -> RootPage {
     let devices = &state.devices;
     let mut devices: Vec<_> = devices
         .iter()
-        .map(|(name, device)| DeviceStatus {
+        .map(|(name, device)| DeviceInfo {
             name: name.clone(),
             mac: device.mac,
+            ip: Default::default(),
             status: PingStatus::Offline,
         })
         .collect();
