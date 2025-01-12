@@ -187,8 +187,6 @@ where
     S::Err: Display,
     D: Deserializer<'de>,
 {
-    // Option::<String>::deserialize(deserializer)
-    //     .and_then(|s| Ok(s.and_then(|s| S::from_str(&s).map_error(de::Error::custom))))
     let s: String = Deserialize::deserialize(deserializer)?;
     S::from_str(&s).map_err(de::Error::custom)
 }
@@ -198,7 +196,7 @@ where
     T: ToString,
     S: Serializer,
 {
-    let v = v.as_ref().and_then(|v| Some(v.to_string()));
+    let v = v.as_ref().map(|v| v.to_string());
     Option::<String>::serialize(&v, serializer)
 }
 
