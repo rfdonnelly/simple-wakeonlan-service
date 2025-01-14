@@ -6,7 +6,7 @@ dev-server:
     cargo watch -w src -w templates -w tailwind.config.js -w styles -x run
 
 dev-tailwind:
-    pnpx tailwindcss -i styles/tailwind.css -o assets/main.css --watch
+    yes | pnpx tailwindcss -i styles/tailwind.css -o assets/main.css --watch
 
 dev:
     #!/bin/sh
